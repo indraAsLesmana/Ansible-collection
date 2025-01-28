@@ -1,0 +1,37 @@
+- name: Install Cloudflare (cloudflared)
+  hosts: all
+  become: yes
+  tasks:
+    - name: Create directory for keyrings
+      file:
+        path: /usr/share/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Download and add Cloudflare GPG key
+      shell: |
+        curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
+      args:
+        creates: /usr/share/keyrings/cloudflare-main.gpg
+
+    - name: Add Cloudflare repository for the current distribution
+      apt_repository:
+        repo: "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared {{ ansible_distribution_release }} main"
+        filename: cloudflared
+        state: present
+
+    - name: Add Cloudflare repository for Ubuntu Jammy (if needed)
+      apt_repository:
+        repo: "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared jammy main"
+        filename: cloudflared
+        state: present
+      when: ansible_distribution_release == 'jammy'
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install cloudflared
+      apt:
+        name: cloudflared
+        state: present

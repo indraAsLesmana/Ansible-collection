@@ -1,0 +1,113 @@
+- name: Configure Cloudflare Tunnel
+  hosts: all
+  become: yes
+  vars:
+    domainname: "transfer.my.id"  # Set your domain name as a variable
+    cloudflared_config_dir: "/root/.cloudflared"  # Directory for Cloudflared config
+    cidrIP: "192.168.2.184/30"  # CIDR IP for IP routing
+  tasks:
+    - name: Ensure Cloudflared is installed
+      apt:
+        name: cloudflared
+        state: present
+
+    - name: Ensure .cloudflared directory exists
+      file:
+        path: "{{ cloudflared_config_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Create Cloudflare Tunnel
+      shell: |
+        cloudflared tunnel create {{ domainname }}-tunnel
+      register: tunnel_create
+      changed_when: false  # Always run this task
+
+    - name: Extract Tunnel ID from output
+      set_fact:
+        tunnel_id: "{{ tunnel_create.stdout | regex_search('Created tunnel .* with id ([a-f0-9-]+)', '\\1') | first }}"
+
+    - name: Debug Tunnel ID
+      debug:
+        msg: "Tunnel ID: {{ tunnel_id }}"
+
+    - name: Verify Tunnel Creation
+      shell: |
+        cloudflared tunnel list
+      register: tunnel_list
+      changed_when: false  # Always run this task
+
+    - name: Ensure Tunnel ID and Name Match
+      assert:
+        that:
+          - tunnel_id in tunnel_list.stdout
+          - "'{{ domainname }}-tunnel' in tunnel_list.stdout"
+        fail_msg: "Tunnel ID or Name does not match."
+
+    - name: Create config.yml file
+      copy:
+        dest: "{{ cloudflared_config_dir }}/config.yml"
+        content: |
+          tunnel: {{ tunnel_id }}
+          credentials-file: {{ cloudflared_config_dir }}/{{ tunnel_id }}.json
+          ingress:
+            - hostname: {{ domainname }}
+              service: http://localhost:3000
+              originRequest:
+                noTLSVerify: true
+
+            - hostname: coolify.{{ domainname }}
+              service: http://localhost:8000
+
+            - hostname: ssh.{{ domainname }}
+              service: ssh://localhost:22
+
+            - hostname: "*.{{ domainname }}"
+              service: http://localhost
+              originRequest:
+                noTLSVerify: true
+
+            - service: http://localhost
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Verify config.yml file
+      stat:
+        path: "{{ cloudflared_config_dir }}/config.yml"
+      register: config_file
+
+    - name: Debug config.yml file status
+      debug:
+        msg: "config.yml file exists: {{ config_file.stat.exists }}"
+
+    - name: Configure DNS routing for wildcard domain
+      shell: |
+        cloudflared tunnel route dns {{ tunnel_id }} *.{{ domainname }}
+      when: tunnel_id is defined
+
+    - name: Configure IP routing for CIDR IP
+      shell: |
+        cloudflared tunnel route ip add {{ cidrIP }} {{ tunnel_id }}
+      when: tunnel_id is defined
+
+    - name: Install Cloudflared as a systemd service
+      shell: |
+        sudo cloudflared --config {{ cloudflared_config_dir }}/config.yml service install
+      when: tunnel_id is defined
+
+    - name: Start Cloudflared service
+      systemd:
+        name: cloudflared
+        state: started
+        enabled: yes
+
+    - name: Check Cloudflared service status
+      shell: |
+        systemctl status cloudflared
+      register: cloudflared_status
+      changed_when: false
+
+    - name: Debug Cloudflared service status
+      debug:
+        msg: "{{ cloudflared_status.stdout }}"

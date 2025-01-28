@@ -1,0 +1,12 @@
+- name: Install Coolify Specific Version
+  hosts: all
+  become: yes
+  tasks:
+    - name: Install Coolify version 4.0.0-beta.380
+      shell: |
+        curl -fsSL https://cdn.coollabs.io/coolify/install.sh | bash -s 4.0.0-beta.380
+      register: coolify_install
+
+    - name: Display Coolify installation output
+      debug:
+        var: coolify_install.stdout
