@@ -1,0 +1,27 @@
+---
+- name: Install essential command line tools
+  hosts: all
+  become: yes
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install essential packages
+      apt:
+        name: "{{ packages }}"
+        state: present
+      vars:
+        packages:
+          - nano
+          - vim
+          - curl
+          - wget
+          - htop
+          - net-tools
+          - software-properties-common
+          - git
+          - zip
+          - unzip
+          - tree
